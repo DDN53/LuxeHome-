@@ -2,40 +2,75 @@
 include('includes/db.php');
 
 // Handle filters with sanitization
-$brand = isset($_GET['brand']) ? htmlspecialchars($_GET['brand']) : '';
-$compatibility = isset($_GET['compatibility']) ? htmlspecialchars($_GET['compatibility']) : '';
-$max_price = isset($_GET['max_price']) ? (float)$_GET['max_price'] : '';
+$brand = $_GET['brand'] ?? '';
+$compatibility = $_GET['compatibility'] ?? '';
+$max_price = $_GET['max_price'] ?? '';
 
-// Prepare base SQL with parameterized query
+// Build SQL query
 $sql = "SELECT * FROM products WHERE 1=1";
-$types = "";
-$params = [];
 
-// Apply filters if set
 if (!empty($brand)) {
-    $sql .= " AND brand = ?";
-    $types .= "s";
-    $params[] = $brand;
-}
-if (!empty($compatibility)) {
-    $sql .= " AND compatibility LIKE ?";
-    $types .= "s";
-    $params[] = "%$compatibility%";
-}
-if (!empty($max_price)) {
-    $sql .= " AND price <= ?";
-    $types .= "d";
-    $params[] = $max_price;
+    $sql .= " AND brand = '" . $conn->real_escape_string($brand) . "'";
 }
 
-// Prepare and execute the statement
-$stmt = $conn->prepare($sql);
-if ($stmt) {
-    if (!empty($params)) {
-        $stmt->bind_param($types, ...$params);
+if (!empty($compatibility)) {
+    $sql .= " AND compatibility LIKE '%" . $conn->real_escape_string($compatibility) . "%'";
+}
+
+if (!empty($max_price)) {
+    $sql .= " AND price <= " . (float)$max_price;
+}
+
+$result = $conn->query($sql);
+if (isset($_POST['add_to_cart'])) {
+    $item = [
+        'id' => $_POST['product_id'],
+        'name' => $_POST['product_name'],
+        'price' => $_POST['product_price'],
+        'quantity' => 1
+    ];
+
+    // Initialize cart
+    if (!isset($_SESSION['cart'])) {
+        $_SESSION['cart'] = [];
     }
-    $stmt->execute();
-    $result = $stmt->get_result();
+
+    // Check if item is already in cart
+    $found = false;
+    foreach ($_SESSION['cart'] as &$cartItem) {
+        if ($cartItem['id'] == $item['id']) {
+            $cartItem['quantity']++;
+            $found = true;
+            break;
+        }
+    }
+
+    if (!$found) {
+        $_SESSION['cart'][] = $item;
+    }
+
+    header("Location: cart.php");
+    exit;
+}
+
+// Remove Item
+if (isset($_GET['remove'])) {
+    $remove_id = $_GET['remove'];
+    foreach ($_SESSION['cart'] as $index => $cartItem) {
+        if ($cartItem['id'] == $remove_id) {
+            unset($_SESSION['cart'][$index]);
+        }
+    }
+    $_SESSION['cart'] = array_values($_SESSION['cart']); // Re-index
+    header("Location: cart.php");
+    exit;
+}
+
+// Clear Cart
+if (isset($_GET['clear'])) {
+    unset($_SESSION['cart']);
+    header("Location: cart.php");
+    exit;
 }
 ?>
 
@@ -137,6 +172,7 @@ if ($stmt) {
             font-weight: 600;
             transition: var(--transition);
             align-self: flex-end;
+            margin-top: 10px;
         }
         
         .btn:hover {
@@ -314,15 +350,18 @@ if ($stmt) {
             
             <form method="GET" class="filter-form">
                 <div class="filter-group">
-                    <label for="brand">Brand</label>
-                    <select name="brand" id="brand">
-                        <option value="">All Brands</option>
-                        <option value="Samsung" <?= $brand === 'Samsung' ? 'selected' : '' ?>>Samsung</option>
-                        <option value="Amazon" <?= $brand === 'Amazon' ? 'selected' : '' ?>>Amazon</option>
-                        <option value="Google" <?= $brand === 'Google' ? 'selected' : '' ?>>Google</option>
-                        <option value="Apple" <?= $brand === 'Apple' ? 'selected' : '' ?>>Apple</option>
-                        <option value="Philips" <?= $brand === 'Philips' ? 'selected' : '' ?>>Philips</option>
-                    </select>
+                  <label>Brand:</label>
+    <select name="brand">
+        <option value="">-- Any --</option>
+        <option value="Samsung" <?= ($_GET['brand'] ?? '') === 'Samsung' ? 'selected' : '' ?>>Samsung</option>
+        <option value="Amazon" <?= ($_GET['brand'] ?? '') === 'Amazon' ? 'selected' : '' ?>>Amazon</option>
+        <option value="Google" <?= ($_GET['brand'] ?? '') === 'Google' ? 'selected' : '' ?>>Google</option>
+    </select>
+
+    
+
+   
+                       
                 </div>
                 
                 <div class="filter-group">
@@ -350,6 +389,13 @@ if ($stmt) {
                     <?php endif; ?>
                 </div>
             </form>
+            <!-- <form method="POST" action="cart.php">
+    <input type="hidden" name="product_id" value="<?= $row['id'] ?>">
+    <input type="hidden" name="product_name" value="<?= $row['name'] ?>">
+    <input type="hidden" name="product_price" value="<?= $row['price'] ?>">
+    <button type="submit" name="add_to_cart">Add to Cart</button>
+</form> -->
+
         </section>
         
         <section class="products-section">
@@ -359,20 +405,16 @@ if ($stmt) {
                 <div class="products-grid">
                     <?php while ($row = $result->fetch_assoc()): ?>
                         <div class="product-card">
-                            <div class="product-image">
-                                <i class="fas fa-<?= strtolower($row['brand']) === 'apple' ? 'apple' : 'lightbulb' ?>"></i>
-                            </div>
-                            <div class="product-content">
-                                <h3 class="product-title"><?= htmlspecialchars($row['name']) ?></h3>
-                                <div class="product-meta">
-                                    <span class="product-brand"><?= htmlspecialchars($row['brand']) ?></span>
-                                    <span class="product-compatibility">
-                                        <i class="fas fa-plug"></i> <?= htmlspecialchars($row['compatibility']) ?>
-                                    </span>
-                                </div>
-                                <div class="product-price">$<?= number_format($row['price'], 2) ?></div>
-                                <p class="product-description"><?= htmlspecialchars($row['description']) ?></p>
-                            </div>
+                          
+                           <div style="border: 1px solid #ccc; padding: 10px; margin: 10px;">
+    <h3><?= htmlspecialchars($row['name']) ?></h3>
+    <img src="<?= htmlspecialchars($row['image']) ?>" alt="Product Image" width="200">
+    <p>Brand: <?= htmlspecialchars($row['brand']) ?></p>
+    <p>Compatibility: <?= htmlspecialchars($row['compatibility']) ?></p>
+    <p>Price: $<?= htmlspecialchars($row['price']) ?></p>
+    <p><?= htmlspecialchars($row['description']) ?></p>
+</div>
+
                         </div>
                     <?php endwhile; ?>
                 </div>
@@ -382,7 +424,7 @@ if ($stmt) {
                     <h3>No products found</h3>
                     <p>Try adjusting your filters to see more results</p>
                     <?php if ($brand || $compatibility || $max_price): ?>
-                        <a href="?" class="btn">Clear all filters</a>
+                        <a href="?" class="btn" style="margin-top: 10px;">Clear all filters</a>
                     <?php endif; ?>
                 </div>
             <?php endif; ?>
